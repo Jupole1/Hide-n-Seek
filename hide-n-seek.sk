@@ -1,0 +1,200 @@
+##############################
+# SET SPAWN COMMAND
+##############################
+
+command /setgamespawn <text>:
+    permission: hideandseek.admin
+    trigger:
+        if arg-1 is "hider":
+            set {hider.spawn} to location of player
+            send "&aHider spawn set!" to player
+        else if arg-1 is "seeker":
+            set {seeker.spawn} to location of player
+            send "&aSeeker spawn set!" to player
+        else if arg-1 is "caught":
+            set {caught.spawn} to location of player
+            send "&aCaught spawn set!" to player
+        else if arg-1 is "gameend":
+            set {gameend.spawn} to location of player
+            send "&aGame end spawn set!" to player
+        else:
+            send "&cUsage: /setgamespawn <hider/seeker/caught/gameend>" to player
+
+##############################
+# GAMEJOIN COMMAND
+##############################
+
+command /gamejoin:
+    trigger:
+        if player is in {game.joined::*}:
+            send "&cYou have already joined the game!" to player
+            stop
+        add player to {game.joined::*}
+        send "&aYou have joined the game!" to player
+##############################
+# GAMESTOP COMMAND
+##############################
+command /gamestop:
+    trigger:
+        if {game.running} is true:
+            set {game.running} to false
+            teleport {game.joined::*} to {gameend.spawn}
+            wait 2 seconds
+            broadcast "&cThanks for playing!"
+            delete {game.joined::*}
+        else:
+            send "&aThere is no active game."
+    	
+##############################
+# GAMESTART COMMAND (Admin)
+##############################
+
+command /gamestart:
+    trigger:
+        if size of {game.joined::*} < 2:
+            send "&cAt least 2 players must join the game before starting!" to player
+            stop
+        if {hider.spawn} is not set:
+            send "&cHider spawn must be set before starting the game!" to player
+            stop
+        if {seeker.spawn} is not set:
+            send "&cSeeker spawn must be set before starting the game!" to player
+            stop
+        if {caught.spawn} is not set:
+            send "&cCaught spawn must be set before starting the game!" to player
+            stop
+        if {gameend.spawn} is not set:
+            send "&cGame End spawn must be set before starting the game!" to player
+            stop
+        startHideAndSeekGame()
+
+##############################
+# AUTO-START GAME
+##############################
+
+on player join:
+    if size of {game.joined::*} is bigger than 2:
+        broadcast "&aThe game is starting!"
+        startHideAndSeekGame()
+
+##############################
+# LEAVE GAME COMMAND
+##############################
+
+command /leave:
+    trigger:
+        if player is in {game.joined::*}:
+            remove player from {game.joined::*}
+            send "&aYou have left the game." to player
+            broadcast "%player% has left the game."
+            if size of {game.joined::*} is equal to 1:
+                broadcast "&cOnly one player remaining. Ending the game."
+                teleport {game.joined::*} to {gameend.spawn}
+                endHideAndSeekGame()
+            loop {game.joined::*}:
+                if {role::%loop-value%} is "seeker":
+                    add 1 to {_seeker_count}
+            if {_seeker_count} is equal to 0:
+                broadcast "&cAll seekers have left. Ending the game."
+                teleport {game.joined::*} to {gameend.spawn}
+                endHideAndSeekGame()
+        else:
+            send "&cYou are not in a game." to player
+
+##############################
+# GAME START FUNCTION
+##############################
+
+function startHideAndSeekGame():
+    broadcast "&aThe game is starting! Get ready..."
+    wait 5 seconds
+    
+    # Choose one random player from those who joined to be the Seeker.
+    set {_seeker} to a random element out of {game.joined::*}
+    
+    # Teleport the Seeker.
+    loop {game.joined::*}:
+        if loop-value is not {_seeker}:
+            add loop-value to {_hiders::*}
+            teleport loop-value to {hider.spawn}
+            send "&aYou are a Hider! Hide quickly!" to loop-value
+            set {role::%{loop-value}%} to "hider" 
+    teleport {_seeker} to {seeker.spawn}
+    send "&cYou are the Seeker! Wait 30 seconds before seeking!" to {_seeker}
+    set {role::%{_seeker}%} to "seeker"
+    wait 30 seconds
+    send "&cGo find the Hiders!" to {_seeker}
+    give 1 diamond sword of sharpness to {_seeker}
+    send "&4Seekers released!" to {game.joined::*}
+    teleport {_seeker} to {hider.spawn}
+    # Teleport all other joined players as Hiders.
+    
+    
+    set {game.running} to true
+    set {game.timer} to 300  # Game duration in seconds (5 minutes)
+    
+    # Game timer loop.
+    while {game.timer} > 0:
+        wait 1 second
+        remove 1 from {game.timer}
+        if {game.running} is false:
+            stop
+    if {game.running} is true:
+        broadcast "&aTime is up! Hiders win!"
+        set {game.running} to false
+        teleport {game.joined::*} to {gameend.spawn}
+        wait 2 seconds
+        broadcast "&cThanks for playing!"
+        delete {game.joined::*}
+
+##############################
+# DAMAGE/DEATH HANDLING (CATCHING MECHANIC)
+##############################
+
+on death:
+    # Use the built-in 'victim' in this event.
+    loop {game.joined::*}:
+        if loop-value is not {_seeker}:
+            teleport victim to {caught.spawn}
+            send "&cYou have been caught!" to victim
+            set {role::%victim%} to "caught"
+            send "&cA Hider has been caught!" to {game.joined::*}
+     
+        if size of {_hiders::*} is 0:
+            wait 2 seconds
+            broadcast "&cAll Hiders have been caught! Seeker wins!"
+            teleport {game.joined::*} to {gameend.spawn}
+            wait 2 seconds
+            clear {game.joined::*}
+            broadcast "&cThanks for playing!"
+            set {game.running} to false
+            delete {game.joined::*}
+
+##############################
+# CLEANUP ON QUIT
+##############################
+
+on quit:
+    if player is in {game.joined::*}:
+        remove player from {game.joined::*}
+        if size of {game.joined::*} <= 1:
+            broadcast "&cOnly one player remaining. Ending the game."
+            teleport {game.joined::*} to {gameend.spawn}
+            endHideAndSeekGame()
+        loop {game.joined::*}:
+            if {role::%loop-value%} is "seeker":
+                add 1 to {_seeker_count}
+        if {_seeker_count} <= 0:
+            broadcast "&cAll seekers have left. Ending the game."
+            teleport {game.joined::*} to {gameend.spawn}
+            endHideAndSeekGame()
+
+##############################
+# GAME END FUNCTION
+##############################
+
+function endHideAndSeekGame():
+    wait 2 seconds
+    broadcast "&cThanks for playing!"
+    clear {game.joined::*}
+    delete {game.joined::*}
